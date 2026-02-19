@@ -1,26 +1,21 @@
 package com.example.ai_assist
 
 import android.Manifest
+import android.animation.ObjectAnimator
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.graphics.Matrix
-import android.graphics.Rect
 import android.graphics.SurfaceTexture
-import android.graphics.YuvImage
 import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
-import android.util.Size
-import java.util.Collections
-import kotlin.math.abs
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
-import android.media.Image
 import android.media.ImageReader
 import android.net.Uri
 import android.os.Bundle
@@ -29,28 +24,27 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.text.Spannable
 import android.text.SpannableString
-import android.text.style.AbsoluteSizeSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.TypefaceSpan
 import android.util.Log
 import android.util.Range
+import android.util.Size
+import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
-import android.widget.Toast
+import android.view.animation.AlphaAnimation
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.ai_assist.databinding.ActivityMainBinding
 import com.example.ai_assist.repository.ChatRepository
 import com.example.ai_assist.service.GameApiService
-import com.example.ai_assist.service.RayNeoDeviceManager
 import com.example.ai_assist.viewmodel.ChatViewModel
 import com.example.ai_assist.viewmodel.ChatViewModelFactory
 import com.example.ai_assist.utils.RayNeoAudioRecorder
-import com.ffalcon.mercury.android.sdk.touch.TempleAction
-import com.ffalcon.mercury.android.sdk.ui.activity.BaseMirrorActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -58,23 +52,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
+import java.util.Collections
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
-class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
+class MainActivity : AppCompatActivity() {
 
+    private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: ChatViewModel
     private lateinit var cameraExecutor: ExecutorService
 
     // Camera2 variables
-    private val surfaceList = mutableListOf<Surface>()
     private var cameraDevice: CameraDevice? = null
     private lateinit var cameraManager: CameraManager
     private var cameraCaptureSession: CameraCaptureSession? = null
@@ -98,12 +90,15 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             val allGranted = permissions.entries.all { it.value }
             if (!allGranted) {
                 showCustomToast("需要相机和存储权限")
+            } else {
+                setupCamera2()
             }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // BaseMirrorActivity handles setContentView
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         
@@ -116,7 +111,7 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
         observeViewModel()
         checkPermissions()
         
-        // Initial State
+        // 初始状态
         updateGameState(GameState.IDLE)
     }
 
@@ -158,89 +153,180 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
     }
 
     private fun setupDependencies() {
-        // Network
-        // Configured for local real device debugging
         val retrofit = Retrofit.Builder()
             .baseUrl(AppConfig.SERVER_BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         
         val apiService = retrofit.create(GameApiService::class.java)
-        
-        // Data & Device
         val repository = ChatRepository(apiService)
-        val deviceManager = RayNeoDeviceManager(this)
         
-        val factory = ChatViewModelFactory(repository, deviceManager)
+        val factory = ChatViewModelFactory(repository)
         viewModel = ViewModelProvider(this, factory)[ChatViewModel::class.java]
 
-        // Initialize Audio Recorder
         audioRecorder = RayNeoAudioRecorder(this) { file ->
             viewModel.uploadAudio(file)
         }
     }
 
     private fun setupUI() {
-        mBindingPair.updateView { 
-            tvStatus.text = "已连接"
-            tvStatus.setTextColor(getColor(R.color.neon_green))
-            // Clear test data
-            tvContentHand.text = ""
-            tvContentSuggested.text = ""
-            tvContentWaiting.text = ""
+        binding.tvStatus.text = "已连接"
 
-            // Setup scroll buttons
-            btnScrollUp.setOnClickListener {
-                // Scroll approximately one line (considering 2.5x tile size + spacing)
-                val scrollAmount = (tvContentWaiting.textSize * 3).toInt()
-                svContentWaiting.smoothScrollBy(0, -scrollAmount)
+        // 主操作按钮 (开始/结束对局)
+        binding.btnActionPrimary.setOnClickListener {
+            when (currentState) {
+                GameState.IDLE -> {
+                    lifecycleScope.launch {
+                        viewModel.startNewSession()
+                        clearGameData()
+                        updateGameState(GameState.GAMING)
+                    }
+                }
+                GameState.GAMING -> {
+                    viewModel.endCurrentSession()
+                    updateGameState(GameState.IDLE)
+                    clearGameData()
+                }
+                else -> {}
             }
-            btnScrollDown.setOnClickListener {
-                val scrollAmount = (tvContentWaiting.textSize * 3).toInt()
-                svContentWaiting.smoothScrollBy(0, scrollAmount)
+        }
+        
+        // 拍照按钮
+        binding.btnActionSecondary.setOnClickListener {
+            if (currentState == GameState.GAMING) {
+                updateGameState(GameState.CAMERA_PREVIEW)
+            }
+        }
+
+        // 相机区域内的 FAB 快门按钮
+        binding.btnShutter.setOnClickListener {
+            if (currentState == GameState.CAMERA_PREVIEW) {
+                takePhoto()
+            }
+        }
+
+        // 照片确认 - 发送
+        binding.btnReviewSend.setOnClickListener {
+            currentPhotoFile?.let { file ->
+                showCustomToast("正在分析手牌...")
+                showLoading(true)
+                viewModel.uploadPhoto(file)
+            }
+            updateGameState(GameState.GAMING)
+        }
+
+        // 照片确认 - 重拍
+        binding.btnReviewCancel.setOnClickListener {
+            showCustomToast("已取消")
+            updateGameState(GameState.CAMERA_PREVIEW)
+        }
+        
+        // 语音录制按钮 (按住录制)
+        binding.btnActionRecord.setOnTouchListener { _, event ->
+             when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (currentState == GameState.GAMING) {
+                        audioRecorder?.start()
+                        isRecordingAudio = true
+                        showCustomToast("录音中...")
+                        binding.btnActionRecord.text = "🎤 松开结束"
+                        binding.btnActionRecord.alpha = 0.7f
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isRecordingAudio) {
+                        audioRecorder?.stop()
+                        isRecordingAudio = false
+                        showCustomToast("录音已发送")
+                        binding.btnActionRecord.text = "🎤 按住说话"
+                        binding.btnActionRecord.alpha = 1.0f
+                    }
+                    true
+                }
+                else -> false
             }
         }
     }
 
     private fun updateGameState(newState: GameState) {
-        // 如果从相机预览模式退出到其他模式（不包括照片预览），需要关闭相机
+        // 离开相机预览状态时关闭相机
         if (currentState == GameState.CAMERA_PREVIEW && newState != GameState.CAMERA_PREVIEW && newState != GameState.PHOTO_REVIEW) {
             closeCamera()
         }
-        // 如果从照片预览模式退出到其他模式，也确保关闭相机
         if (currentState == GameState.PHOTO_REVIEW && newState != GameState.PHOTO_REVIEW) {
             closeCamera()
         }
 
         currentState = newState
-        mBindingPair.updateView {
-            // Reset Visibilities
-            tvInstructionIdle.visibility = View.GONE
-            layoutInstructionGaming.visibility = View.GONE
-            cardCameraPreview.visibility = View.GONE
-            tvInstructionCameraPreview.visibility = View.GONE
-            layoutPhotoReviewContainer.visibility = View.GONE
+        
+        // 重置 Overlay 可见性
+        binding.layoutCameraArea.visibility = View.GONE
+        binding.layoutPhotoReviewContainer.visibility = View.GONE
+        
+        when (newState) {
+            GameState.IDLE -> {
+                binding.tvStatus.text = "等待开始"
+                binding.tvStatus.setTextColor(getColor(R.color.text_secondary))
 
-            when (newState) {
-                GameState.IDLE -> {
-                    tvInstructionIdle.visibility = View.VISIBLE
-                    tvStatus.text = "已连接 - 等待开始"
-                    // Clear tiles logic if needed
+                binding.btnActionPrimary.text = "开始对局"
+                binding.btnActionPrimary.setBackgroundResource(R.drawable.bg_btn_primary)
+                binding.btnActionPrimary.visibility = View.VISIBLE
+                binding.btnActionSecondary.visibility = View.GONE
+                binding.btnActionRecord.visibility = View.GONE
+            }
+            GameState.GAMING -> {
+                binding.tvStatus.text = "对局中"
+                binding.tvStatus.setTextColor(getColor(R.color.accent_green))
+
+                binding.btnActionPrimary.text = "结束对局"
+                binding.btnActionPrimary.setBackgroundResource(R.drawable.bg_btn_danger)
+                binding.btnActionPrimary.visibility = View.VISIBLE
+                
+                binding.btnActionSecondary.text = "📷 拍照分析"
+                binding.btnActionSecondary.visibility = View.VISIBLE
+                
+                binding.btnActionRecord.text = "🎤 按住说话"
+                binding.btnActionRecord.visibility = View.VISIBLE
+
+                // 隐藏加载指示器
+                showLoading(false)
+            }
+            GameState.CAMERA_PREVIEW -> {
+                binding.tvStatus.text = "拍照模式"
+                binding.tvStatus.setTextColor(getColor(R.color.accent_blue))
+
+                // 显示相机预览区域（半屏）
+                binding.layoutCameraArea.visibility = View.VISIBLE
+                
+                // 隐藏底部操作栏，使用相机内的 FAB
+                binding.btnActionPrimary.visibility = View.GONE
+                binding.btnActionSecondary.text = "✕ 返回"
+                binding.btnActionSecondary.setBackgroundResource(R.drawable.bg_btn_danger)
+                binding.btnActionSecondary.visibility = View.VISIBLE
+                binding.btnActionSecondary.setOnClickListener {
+                    updateGameState(GameState.GAMING)
+                    // NOTE: 重新绑定拍照按钮的点击事件
+                    binding.btnActionSecondary.setOnClickListener {
+                        if (currentState == GameState.GAMING) {
+                            updateGameState(GameState.CAMERA_PREVIEW)
+                        }
+                    }
                 }
-                GameState.GAMING -> {
-                    layoutInstructionGaming.visibility = View.VISIBLE
-                    tvStatus.text = "对局中"
-                }
-                GameState.CAMERA_PREVIEW -> {
-                    cardCameraPreview.visibility = View.VISIBLE
-                    tvInstructionCameraPreview.visibility = View.VISIBLE
-                    tvStatus.text = "拍照模式"
-                    startCamera()
-                }
-                GameState.PHOTO_REVIEW -> {
-                    layoutPhotoReviewContainer.visibility = View.VISIBLE
-                    tvStatus.text = "确认照片"
-                }
+                binding.btnActionRecord.visibility = View.GONE
+                
+                startCamera()
+            }
+            GameState.PHOTO_REVIEW -> {
+                binding.tvStatus.text = "确认照片"
+                binding.tvStatus.setTextColor(getColor(R.color.accent_gold))
+
+                binding.layoutPhotoReviewContainer.visibility = View.VISIBLE
+                
+                // 隐藏所有底部按钮（照片确认区有自己的按钮）
+                binding.btnActionPrimary.visibility = View.GONE
+                binding.btnActionSecondary.visibility = View.GONE
+                binding.btnActionRecord.visibility = View.GONE
             }
         }
     }
@@ -249,46 +335,11 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
         lifecycleScope.launch {
             viewModel.mappedResult.collect { result ->
                 result?.let {
-                    mBindingPair.updateView {
-                        tvContentHand.text = formatMahjongText(it.userHand.joinToString(" "))
-                        tvContentSuggested.text = formatMahjongText(it.meldedTiles.joinToString(" "))
-                        
-                        // Process suggested play text to resize unicode characters
-                        tvContentWaiting.text = formatMahjongText(it.suggestedPlay)
-                    }
-                }
-            }
-        }
-
-        lifecycleScope.launch {
-            templeActionViewModel.state.collect { action ->
-                when (action) {
-                    is TempleAction.Click -> {
-                        if (currentState == GameState.CAMERA_PREVIEW) {
-                            takePhoto()
-                        } else if (currentState == GameState.GAMING) {
-                            updateGameState(GameState.CAMERA_PREVIEW)
-                        }
-                    }
-                    is TempleAction.DoubleClick -> handleDoubleClick()
-                    is TempleAction.TripleClick -> handleTripleClick()
-                    is TempleAction.SlideForward -> handleSwipeForward()
-                    is TempleAction.SlideBackward -> handleSwipeBackward()
-                    is TempleAction.SlideUpwards -> {
-                        mBindingPair.updateView {
-                            val scrollAmount = (tvContentWaiting.textSize * 3).toInt()
-                            svContentWaiting.smoothScrollBy(0, scrollAmount)
-                        }
-                    }
-                    is TempleAction.SlideDownwards -> {
-                        mBindingPair.updateView {
-                            val scrollAmount = (tvContentWaiting.textSize * 3).toInt()
-                            svContentWaiting.smoothScrollBy(0, -scrollAmount)
-                        }
-                    }
-                    else -> {
-                        Log.d("TempleAction", "Received: $action")
-                    }
+                    binding.tvContentHand.text = formatMahjongText(it.userHand.joinToString(" "))
+                    binding.tvContentSuggested.text = formatMahjongText(it.meldedTiles.joinToString(" "))
+                    binding.tvContentWaiting.text = formatMahjongText(it.suggestedPlay)
+                    // 收到结果后隐藏加载指示器
+                    showLoading(false)
                 }
             }
         }
@@ -296,8 +347,6 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
 
     private fun formatMahjongText(originalText: String): SpannableString {
         val spannable = SpannableString(originalText)
-
-        // Load custom font if enabled
         val mahjongTypeface = if (AppConfig.USE_COLOR_FONT) {
             try {
                 resources.getFont(R.font.mahjong_color)
@@ -309,32 +358,17 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             null
         }
 
-        // Reduce scale factor since the bitmap font is quite large
         val scaleFactor = if (AppConfig.USE_COLOR_FONT) AppConfig.FONT_SCALE_COLOR else AppConfig.FONT_SCALE_DEFAULT
 
-        // Find all mahjong unicode characters (range U+1F000 to U+1F02B)
         var index = 0
         while (index < originalText.length) {
             val codePoint = originalText.codePointAt(index)
             val charCount = Character.charCount(codePoint)
 
-            // Check if it's a Mahjong tile character (U+1F000 - U+1F02B)
             if (codePoint in 0x1F000..0x1F02B) {
-                spannable.setSpan(
-                    RelativeSizeSpan(scaleFactor),
-                    index,
-                    index + charCount,
-                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-
-                // Apply custom font if available
+                spannable.setSpan(RelativeSizeSpan(scaleFactor), index, index + charCount, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 if (mahjongTypeface != null) {
-                    spannable.setSpan(
-                        TypefaceSpan(mahjongTypeface),
-                        index,
-                        index + charCount,
-                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
+                    spannable.setSpan(TypefaceSpan(mahjongTypeface), index, index + charCount, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
             index += charCount
@@ -342,173 +376,55 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
         return spannable
     }
 
-    private fun handleDoubleClick() {
-        onBackPressedDispatcher.onBackPressed()
-    }
-
-    private fun handleTripleClick() {
-        when (currentState) {
-            GameState.IDLE -> {
-                // Start New Session
-                lifecycleScope.launch {
-                    viewModel.startNewSession()
-                    clearGameData() // Clear data when starting a new game
-                    updateGameState(GameState.GAMING)
-                }
-            }
-            GameState.GAMING -> {
-                // End Session
-                viewModel.endCurrentSession()
-                updateGameState(GameState.IDLE)
-                clearGameData() // Clear data when ending a game
-            }
-            else -> {}
-        }
-    }
-
-    private fun handleSwipeForward() {
-        if (currentState == GameState.GAMING) {
-            if (isRecordingAudio) {
-                audioRecorder?.stop()
-                isRecordingAudio = false
-                showCustomToast("录音停止")
-            } else {
-                audioRecorder?.start()
-                isRecordingAudio = true
-                showCustomToast("录音开始")
-            }
-        } else if (currentState == GameState.PHOTO_REVIEW) {
-            // Cancel Photo
-            showCustomToast("取消拍照")
-            updateGameState(GameState.GAMING)
-        } else if (currentState == GameState.CAMERA_PREVIEW) {
-            // Cancel Camera Preview
-            updateGameState(GameState.GAMING)
-        }
-    }
-
-    private fun handleSwipeBackward() {
-        if (currentState == GameState.PHOTO_REVIEW) {
-            // Send Photo
-            currentPhotoFile?.let { file ->
-                showCustomToast("正在分析手牌...")
-                viewModel.uploadPhoto(file)
-            }
-            updateGameState(GameState.GAMING)
-        }
-    }
-
     private fun clearGameData() {
-        mBindingPair.updateView {
-            tvContentHand.text = ""
-            tvContentSuggested.text = ""
-            tvContentWaiting.text = ""
-        }
+        binding.tvContentHand.text = ""
+        binding.tvContentSuggested.text = ""
+        binding.tvContentWaiting.text = ""
     }
 
-    // Camera2 Implementation
+    // ==================== 加载指示器 ====================
+
+    private fun showLoading(show: Boolean) {
+        binding.layoutLoading.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    // ==================== Camera2 实现 ====================
+
     private fun startCamera() {
-        surfaceList.clear()
-        mBindingPair.updateView {
-            // 定义处理逻辑，避免重复代码
-            fun onSurfaceReady(surface: SurfaceTexture, width: Int, height: Int) {
-                configureTransform(width, height)
-                val s = Surface(surface)
-                // 避免重复添加同一个 Surface
-                if (!surfaceList.contains(s)) {
-                    surfaceList.add(s)
-                }
-                
-                // 当左右眼两个 Surface 都准备好时启动相机
-                if (surfaceList.size == 2) {
-                    lifecycleScope.launch {
-                        delay(100L)
-                        setupCamera2()
-                    }
-                }
-            }
-
-            viewCameraPreview.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+        if (binding.viewCameraPreview.isAvailable) {
+            openCamera(binding.viewCameraPreview.width, binding.viewCameraPreview.height)
+        } else {
+            binding.viewCameraPreview.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                    onSurfaceReady(surface, width, height)
+                    openCamera(width, height)
                 }
-
-                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                    configureTransform(width, height)
-                }
+                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
             }
-
-            // [修复关键点]：如果 TextureView 已经可用（如从后台恢复时），
-            // setSurfaceTextureListener 不会触发回调，必须手动检查并处理。
-            if (viewCameraPreview.isAvailable) {
-                viewCameraPreview.surfaceTexture?.let { 
-                    onSurfaceReady(it, viewCameraPreview.width, viewCameraPreview.height)
-                }
-            }
         }
     }
-
-    private fun configureTransform(viewWidth: Int, viewHeight: Int) {
-        mBindingPair.updateView {
-            val textureView = viewCameraPreview
-            val matrix = Matrix()
-            
-            // Use dynamically selected preview size or fallback to 900x1200 (3:4)
-            val pWidth = previewSize?.width?.toFloat() ?: 900f
-            val pHeight = previewSize?.height?.toFloat() ?: 1200f
-            
-            val centerX = viewWidth / 2f
-            val centerY = viewHeight / 2f
-            
-            // Calculate scaling to FIT HEIGHT while maintaining aspect ratio
-            // The texture is initially stretched to fit viewWidth x viewHeight
-            // We want to un-stretch it and make it fill height
-            
-            val videoAspect = pWidth / pHeight
-            val viewAspect = viewWidth.toFloat() / viewHeight
-            
-            // Target dimensions to fit height:
-            // height = viewHeight
-            // width = viewHeight * videoAspect
-            
-            // Calculate scale factors relative to the current stretched view
-            // scaleY = targetHeight / viewHeight = 1.0f
-            // scaleX = targetWidth / viewWidth = (viewHeight * videoAspect) / viewWidth
-            
-            val scaleX = (viewHeight * videoAspect) / viewWidth
-            val scaleY = 1f
-            
-            matrix.setScale(scaleX, scaleY, centerX, centerY)
-            textureView.setTransform(matrix)
+    
+    private fun openCamera(width: Int, height: Int) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+             return
+        }
+        lifecycleScope.launch {
+            delay(100L) // 去抖
+            setupCamera2()
         }
     }
 
     private fun setupCamera2() {
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         try {
-            val cameraId = cameraManager.cameraIdList.first() // Usually back camera
-            
-            // Calculate optimal preview size
+            val cameraId = cameraManager.cameraIdList.first() 
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            
-            // Get TextureView size (assumed from first surface in list if available, or screen size)
-            // For simplicity, we use a target max width/height or current TextureView size if available
-            var targetWidth = 900
-            var targetHeight = 1200
-            
-            // We can try to access the current view size from binding if needed, but it might be 0 if not laid out.
-            // However, configureTransform passes actual width/height.
-            // Here we just want to choose a camera resolution that matches the ASPECT RATIO of the screen/view ideally,
-            // or just the largest available one that fits.
-            // Let's pick a standard 16:9 or 4:3 resolution closest to 1080p.
             
             if (map != null) {
                  val supportedSizes = map.getOutputSizes(SurfaceTexture::class.java).toList()
                  previewSize = chooseOptimalSize(supportedSizes.toTypedArray(), 900, 1200)
-                 Log.d("Camera2", "Selected preview size: ${previewSize?.width}x${previewSize?.height}")
             }
 
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -520,19 +436,10 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
     }
     
     private fun chooseOptimalSize(choices: Array<Size>, textureViewWidth: Int, textureViewHeight: Int): Size {
-        // Collect the supported resolutions that are at least as big as the preview Surface
         val bigEnough = ArrayList<Size>()
-        // Collect the supported resolutions that are smaller than the preview Surface
         val notBigEnough = ArrayList<Size>()
         
-        // We try to find a size that matches the aspect ratio of the texture view if possible, 
-        // but since texture view might be stretched/full screen, we prioritize standard aspect ratios like 16:9 or 4:3
-        // For AR glasses, usually 16:9 (1920x1080) is preferred.
-        
         for (option in choices) {
-            // Check for 16:9 aspect ratio roughly (1920/1080 = 1.777)
-            // or just pick the one closest to textureViewWidth x textureViewHeight
-            // Here we simply collect all
             if (option.width >= textureViewWidth && option.height >= textureViewHeight) {
                 bigEnough.add(option)
             } else {
@@ -540,7 +447,6 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             }
         }
 
-        // Pick the smallest of those big enough. If there is no one big enough, pick the largest of those not big enough.
         if (bigEnough.size > 0) {
             return Collections.min(bigEnough) { lhs, rhs ->
                 java.lang.Long.signum(lhs.width.toLong() * lhs.height - rhs.width.toLong() * rhs.height)
@@ -550,7 +456,6 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
                 java.lang.Long.signum(lhs.width.toLong() * lhs.height - rhs.width.toLong() * rhs.height)
             }
         } else {
-            Log.e("Camera2", "Couldn't find any suitable preview size")
             return choices[0]
         }
     }
@@ -561,7 +466,7 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
                 cameraDevice = camera
                 delay(100L)
                 if (cameraDevice == camera) {
-                    setUpImageReader(camera)
+                    createCameraPreviewSession(camera)
                 }
             }
         }
@@ -578,106 +483,38 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
         }
     }
 
-    private fun setUpImageReader(camera: CameraDevice) {
-        imageReader?.close()
-        // Use dynamically selected preview size or fallback to 900x1200 (3:4)
-        val pWidth = previewSize?.width ?: 900
-        val pHeight = previewSize?.height ?: 1200
-        
-        // OPTIMIZATION: Use JPEG format for hardware encoding and direct saving
-        imageReader = ImageReader.newInstance(pWidth, pHeight, ImageFormat.JPEG, 2)
-        
-        imageReader?.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-            
-            lifecycleScope.launch(Dispatchers.IO) {
-                var imageClosed = false
-                try {
-                    val buffer = image.planes[0].buffer
-                    val bytes = ByteArray(buffer.remaining())
-                    buffer.get(bytes)
-                    image.close()
-                    imageClosed = true
-
-                    // Decode bitmap
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    
-                    // Rotate bitmap (90 degrees as per capture request)
-                    val matrix = Matrix()
-                    matrix.postRotate(90f)
-                    val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                    
-                    // Crop bottom 50% height
-                    // Top: 50%, Height: 50%
-                    val cropY = (rotatedBitmap.height * 0.50).toInt()
-                    val cropHeight = (rotatedBitmap.height * 0.50).toInt()
-                    
-                    // Ensure bounds are valid
-                    val finalY = cropY.coerceIn(0, rotatedBitmap.height)
-                    val finalHeight = cropHeight.coerceAtMost(rotatedBitmap.height - finalY)
-                    
-                    val croppedBitmap = Bitmap.createBitmap(rotatedBitmap, 0, finalY, rotatedBitmap.width, finalHeight)
-                    
-                    val photoFile = File(
-                        getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-                        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US)
-                            .format(System.currentTimeMillis()) + ".jpg"
-                    )
-                    
-                    FileOutputStream(photoFile).use { fos ->
-                        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos)
-                    }
-                    
-                    // Recycle bitmaps to save memory
-                    bitmap.recycle()
-                    rotatedBitmap.recycle()
-                    // croppedBitmap will be recycled by GC
-                    
-                    currentPhotoFile = photoFile
-                    
-                    val uri = Uri.fromFile(photoFile)
-                    withContext(Dispatchers.Main) {
-                        showPhotoReview(uri)
-                    }
-                } catch (e: Exception) {
-                    Log.e("Camera2", "Save photo failed", e)
-                    withContext(Dispatchers.Main) {
-                        showCustomToast("保存照片失败: ${e.message}")
-                    }
-                } finally {
-                    if (!imageClosed) {
-                        try { image.close() } catch (e: Exception) {}
-                    }
-                }
-            }
-        }, backHandler)
-
+    private fun createCameraPreviewSession(camera: CameraDevice) {
         try {
-            // OPTIMIZATION: Do NOT add imageReader surface to preview request
-            val captureRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                for (surface in surfaceList) {
-                    addTarget(surface)
-                }
-                set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(15, 30))
+            val texture = binding.viewCameraPreview.surfaceTexture ?: return
+            
+            previewSize?.let {
+                texture.setDefaultBufferSize(it.width, it.height)
             }
+            
+            val surface = Surface(texture)
+            
+            val pWidth = previewSize?.width ?: 900
+            val pHeight = previewSize?.height ?: 1200
+            
+            imageReader = ImageReader.newInstance(pWidth, pHeight, ImageFormat.JPEG, 2)
+            imageReader?.setOnImageAvailableListener(onImageAvailableListener, backHandler)
 
-            val outputConfigs = mutableListOf<OutputConfiguration>()
-            imageReader?.let { outputConfigs.add(OutputConfiguration(it.surface)) }
-            for (surface in surfaceList) {
-                outputConfigs.add(OutputConfiguration(surface))
-            }
+            val captureRequestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
+            captureRequestBuilder.addTarget(surface)
+            captureRequestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(15, 30))
 
-            // Using SessionConfiguration for Android P+ (API 28+)
+            val outputConfigs = listOf(
+                OutputConfiguration(surface), 
+                OutputConfiguration(imageReader!!.surface)
+            )
+
             val sessionConfig = SessionConfiguration(
                 SessionConfiguration.SESSION_REGULAR,
                 outputConfigs,
                 cameraExecutor,
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        if (cameraDevice == null) {
-                            session.close()
-                            return
-                        }
+                        if (cameraDevice == null) return
                         cameraCaptureSession = session
                         try {
                             session.setRepeatingRequest(captureRequestBuilder.build(), null, backHandler)
@@ -697,6 +534,66 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             Log.e("Camera2", "Create capture session failed", e)
         }
     }
+    
+    private val onImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
+        val image = reader.acquireLatestImage() ?: return@OnImageAvailableListener
+        
+        lifecycleScope.launch(Dispatchers.IO) {
+            var imageClosed = false
+            try {
+                val buffer = image.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                image.close()
+                imageClosed = true
+
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                
+                // 旋转手机竖屏拍摄的照片（通常需要旋转 90°）
+                val matrix = Matrix()
+                matrix.postRotate(90f)
+                val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                
+                // 裁剪底部 50%（手牌区域）
+                val cropY = (rotatedBitmap.height * 0.50).toInt()
+                val cropHeight = (rotatedBitmap.height * 0.50).toInt()
+                
+                val finalY = cropY.coerceIn(0, rotatedBitmap.height)
+                val finalHeight = cropHeight.coerceAtMost(rotatedBitmap.height - finalY)
+                
+                val croppedBitmap = Bitmap.createBitmap(rotatedBitmap, 0, finalY, rotatedBitmap.width, finalHeight)
+                
+                val photoFile = File(
+                    getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                    SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis()) + ".jpg"
+                )
+                
+                FileOutputStream(photoFile).use { fos ->
+                    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos)
+                }
+                
+                bitmap.recycle()
+                rotatedBitmap.recycle()
+                
+                currentPhotoFile = photoFile
+                val uri = Uri.fromFile(photoFile)
+                withContext(Dispatchers.Main) {
+                    // 快门闪光效果
+                    playShutterEffect()
+                    showPhotoReview(uri)
+                }
+            } catch (e: Exception) {
+                Log.e("Camera2", "Save photo failed", e)
+                withContext(Dispatchers.Main) {
+                    showCustomToast("保存照片失败: ${e.message}")
+                }
+            } finally {
+                if (!imageClosed) {
+                    try { image.close() } catch (e: Exception) {}
+                }
+            }
+        }
+    }
 
     private fun takePhoto() {
         try {
@@ -704,20 +601,11 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             val device = cameraDevice ?: return
             val reader = imageReader ?: return
 
-            // Create a still capture request
             val captureBuilder = device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
             captureBuilder.addTarget(reader.surface)
             
-            // Also add preview surface to prevent flicker (optional but recommended)
-            for (surface in surfaceList) {
-                captureBuilder.addTarget(surface)
-            }
-
-            // Use the same AE/AF modes as preview
             captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-            
-            // Hardware rotation
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90)
 
             session.capture(captureBuilder.build(), null, backHandler)
@@ -736,12 +624,7 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
             cameraDevice = null
             imageReader?.close()
             imageReader = null
-            previewSize = null // 重置 previewSize 以确保下次启动时的行为一致性
-            
-            for (surface in surfaceList) {
-                surface.release()
-            }
-            surfaceList.clear()
+            previewSize = null 
         } catch (e: Exception) {
             Log.e("Camera2", "Close camera failed", e)
         }
@@ -749,19 +632,44 @@ class MainActivity : BaseMirrorActivity<ActivityMainBinding>() {
     
     private fun showPhotoReview(uri: Uri) {
         updateGameState(GameState.PHOTO_REVIEW)
-        mBindingPair.updateView {
-            layoutPhotoReviewContainer.visibility = View.VISIBLE
-            imagePhotoReview.setImageURI(uri)
+        binding.layoutPhotoReviewContainer.visibility = View.VISIBLE
+        binding.imagePhotoReview.setImageURI(uri)
+    }
+
+    // ==================== UI 辅助方法 ====================
+
+    /**
+     * 快门闪光效果：拍照时短暂白闪
+     */
+    private fun playShutterEffect() {
+        binding.viewShutterFlash.visibility = View.VISIBLE
+        val fadeOut = AlphaAnimation(0.6f, 0f).apply {
+            duration = 200
         }
+        binding.viewShutterFlash.startAnimation(fadeOut)
+        binding.viewShutterFlash.postDelayed({
+            binding.viewShutterFlash.visibility = View.GONE
+        }, 200)
     }
 
     private fun showCustomToast(message: String) {
-        mBindingPair.updateView {
-            tvCustomToast.text = message
-            tvCustomToast.visibility = View.VISIBLE
-            tvCustomToast.postDelayed({
-                tvCustomToast.visibility = View.GONE
-            }, 2000)
-        }
+        binding.tvCustomToast.text = message
+        binding.tvCustomToast.visibility = View.VISIBLE
+        // 淡入效果
+        binding.tvCustomToast.alpha = 0f
+        binding.tvCustomToast.animate()
+            .alpha(1f)
+            .setDuration(150)
+            .start()
+        binding.tvCustomToast.postDelayed({
+            // 淡出效果
+            binding.tvCustomToast.animate()
+                .alpha(0f)
+                .setDuration(300)
+                .withEndAction {
+                    binding.tvCustomToast.visibility = View.GONE
+                }
+                .start()
+        }, 2000)
     }
 }

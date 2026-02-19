@@ -49,8 +49,8 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    // 引入 libs 目录下的所有 aar 文件
-    implementation(fileTree("libs"))
+    // 移除 libs 目录下的所有 aar 文件引用 (RayNeo SDK)
+    // implementation(fileTree("libs"))
 
     // 引入rayneo文档要求的其他必要依赖项 [cite: 12]
     implementation("androidx.core:core-ktx:1.8.0")
@@ -71,6 +71,9 @@ dependencies {
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.1")
+
+    // ConstraintLayout
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     // Image Loading
     implementation("io.coil-kt:coil:2.4.0")

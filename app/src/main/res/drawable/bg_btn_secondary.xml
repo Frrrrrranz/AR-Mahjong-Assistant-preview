@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 次要按钮背景：蓝色圆角 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#2980B9">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent_blue" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</ripple>

@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.ai_assist.model.AnalyzeResponse
 import com.example.ai_assist.repository.ChatRepository
-import com.example.ai_assist.service.RayNeoDeviceManager
 import com.example.ai_assist.utils.MahjongMapper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,8 +14,7 @@ import java.io.File
 import java.util.UUID
 
 class ChatViewModel(
-    private val repository: ChatRepository,
-    private val deviceManager: RayNeoDeviceManager
+    private val repository: ChatRepository
 ) : ViewModel() {
 
     // Expose mapped result
@@ -33,25 +31,6 @@ class ChatViewModel(
     }
     
     private var sessionId = UUID.randomUUID().toString()
-
-    init {
-        deviceManager.listener = object : RayNeoDeviceManager.InteractionListener {
-            override fun onVoiceResult(text: String) {
-                // Not used
-            }
-
-            override fun onImageCaptured(path: String) {
-                // Not used
-            }
-
-            override fun onTempleTouch() {}
-            override fun onTempleLongPress() {}
-        }
-    }
-
-    fun takePhoto() {
-        deviceManager.takePhoto()
-    }
 
     suspend fun startNewSession(): Boolean {
         sessionId = UUID.randomUUID().toString()
@@ -83,13 +62,12 @@ class ChatViewModel(
 }
 
 class ChatViewModelFactory(
-    private val repository: ChatRepository,
-    private val deviceManager: RayNeoDeviceManager
+    private val repository: ChatRepository
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return ChatViewModel(repository, deviceManager) as T
+            return ChatViewModel(repository) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

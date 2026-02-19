@@ -1,10 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 基础色 (保留向后兼容) -->
     <color name="black">#000000</color>
     <color name="white">#FFFFFF</color>
+    <color name="transparent">#00000000</color>
+
+    <!-- 旧 AR 配色 (保留兼容，不再主用) -->
     <color name="neon_green">#44FF66</color>
     <color name="neon_green_dim">#228833</color>
     <color name="bright_blue">#00BFFF</color>
     <color name="red">#FF0000</color>
-    <color name="transparent">#00000000</color>
+
+    <!-- 新主题配色 — 深色现代风 -->
+    <color name="bg_primary">#0F1923</color>         <!-- 主背景：深蓝黑 -->
+    <color name="bg_surface">#1A2634</color>          <!-- 卡片/容器背景 -->
+    <color name="bg_surface_light">#243447</color>    <!-- 高亮卡片背景 -->
+
+    <color name="accent_green">#2ECC71</color>        <!-- 强调绿 (翠绿) -->
+    <color name="accent_green_dark">#27AE60</color>   <!-- 深绿 (按下态) -->
+    <color name="accent_gold">#F1C40F</color>         <!-- 强调金 (重要信息) -->
+    <color name="accent_blue">#3498DB</color>         <!-- 强调蓝 (次要操作) -->
+    <color name="accent_red">#E74C3C</color>          <!-- 警告/危险红 -->
+
+    <color name="text_primary">#ECF0F1</color>        <!-- 主文字：近白 -->
+    <color name="text_secondary">#95A5A6</color>      <!-- 次要文字：灰 -->
+    <color name="text_hint">#5D6D7E</color>           <!-- 提示文字：暗灰 -->
+
+    <color name="divider">#2C3E50</color>             <!-- 分割线 -->
+    <color name="overlay_dark">#CC000000</color>      <!-- 80% 不透明黑色遮罩 -->
+    <color name="shutter_flash">#33FFFFFF</color>     <!-- 快门闪光 -->
+    <color name="guide_line">#66FFFFFF</color>        <!-- 拍摄辅助线 -->
 </resources>

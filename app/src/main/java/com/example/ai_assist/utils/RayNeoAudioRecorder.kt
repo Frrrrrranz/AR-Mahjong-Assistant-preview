@@ -39,8 +39,8 @@ class RayNeoAudioRecorder(
         if (isRecording.get()) return
 
         audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        // Reference: ExampleRecordTranslation.java
-        audioManager?.setParameters("audio_source_record=record_origin3")
+        // remove rayneo specific audio source
+        // audioManager?.setParameters("audio_source_record=record_origin3")
 
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         // Ensure buffer is large enough for efficient reading
@@ -55,22 +55,8 @@ class RayNeoAudioRecorder(
                 bufferSize
             )
 
-            // Set preferred device (ID 23 or name matching RayNeo)
-            val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_INPUTS)
-            var targetDevice: AudioDeviceInfo? = null
-            
-            // Try to find RayNeo specific device first (ID 23 is common for RayNeo X2, but name check is safer)
-            targetDevice = devices?.find { device ->
-                 (device.type == AudioDeviceInfo.TYPE_BUILTIN_MIC || device.type == AudioDeviceInfo.TYPE_USB_HEADSET) && 
-                 (device.id == 23 || device.productName.contains("RayNeo", ignoreCase = true))
-            }
-            
-            if (targetDevice != null) {
-                Log.i("RayNeoAudioRecorder", "Using preferred device: ${targetDevice.productName} (ID: ${targetDevice.id})")
-                audioRecord?.preferredDevice = targetDevice
-            } else {
-                Log.w("RayNeoAudioRecorder", "RayNeo microphone not found. Using default device.")
-            }
+            // 标准手机不需要手动寻找特定ID的麦克风，直接使用默认
+            // val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_INPUTS) ...
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e("RayNeoAudioRecorder", "AudioRecord init failed")
@@ -170,7 +156,7 @@ class RayNeoAudioRecorder(
             audioRecord?.release()
             audioRecord = null
             
-            audioManager?.setParameters("audio_source_record=off")
+            // audioManager?.setParameters("audio_source_record=off")
         } catch (e: Exception) {
             Log.e("RayNeoAudioRecorder", "Stop failed", e)
         }

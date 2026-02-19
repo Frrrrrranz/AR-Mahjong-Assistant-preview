@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 旧版麻将区域边框（兼容保留，更新为新配色） -->
+<!-- 卡片背景：深色半透明，用于手牌/副露/建议区域 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
+    <solid android:color="@color/bg_surface" />
+    <corners android:radius="12dp" />
     <stroke
         android:width="1dp"
         android:color="@color/divider" />
-    <corners android:radius="12dp" />
-    <solid android:color="@color/transparent" />
 </shape>
