@@ -146,12 +146,15 @@ class RayNeoAudioRecorder(
     fun stop() {
         isRecording.set(false)
         try {
-            // Stop recording first to force read() to return/throw, preventing thread block
+            // 先停止录音，让 read() 返回，防止线程阻塞
             if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 audioRecord?.stop()
             }
 
             recordingThread?.join(1000)
+            
+            // NOTE: 必须在线程结束后 flush 剩余数据，否则短于 10 秒的录音不会生成文件
+            flushBufferToFile()
             
             audioRecord?.release()
             audioRecord = null

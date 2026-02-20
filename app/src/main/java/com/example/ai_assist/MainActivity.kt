@@ -50,8 +50,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -76,6 +78,8 @@ class MainActivity : AppCompatActivity() {
     private var cameraJob: Job? = null
     private var previewSize: Size? = null
     private var currentPhotoFile: File? = null
+    // NOTE: 存储相机传感器方向，用于计算正确的预览和拍照旋转
+    private var sensorOrientation: Int = 0
     
     // Audio Recorder
     private var audioRecorder: RayNeoAudioRecorder? = null
@@ -153,8 +157,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupDependencies() {
+        // NOTE: 缩短超时时间，避免服务器未启动时 UI 长时间无响应
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .build()
+
         val retrofit = Retrofit.Builder()
             .baseUrl(AppConfig.SERVER_BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
         
@@ -176,10 +188,14 @@ class MainActivity : AppCompatActivity() {
         binding.btnActionPrimary.setOnClickListener {
             when (currentState) {
                 GameState.IDLE -> {
+                    // NOTE: 先切换 UI 状态，后台异步创建 session，避免网络超时阻塞 UI
+                    clearGameData()
+                    updateGameState(GameState.GAMING)
                     lifecycleScope.launch {
-                        viewModel.startNewSession()
-                        clearGameData()
-                        updateGameState(GameState.GAMING)
+                        val success = viewModel.startNewSession()
+                        if (!success) {
+                            showCustomToast("服务器连接失败，请检查网络")
+                        }
                     }
                 }
                 GameState.GAMING -> {
@@ -204,6 +220,27 @@ class MainActivity : AppCompatActivity() {
                 takePhoto()
             }
         }
+        
+        // 相机区域内的返回按钮
+        binding.btnCameraBack.setOnClickListener {
+            if (currentState == GameState.CAMERA_PREVIEW) {
+                updateGameState(GameState.GAMING)
+            }
+        }
+        
+        // NOTE: 系统返回键处理——从相机/照片确认模式返回
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when (currentState) {
+                    GameState.CAMERA_PREVIEW -> updateGameState(GameState.GAMING)
+                    GameState.PHOTO_REVIEW -> updateGameState(GameState.CAMERA_PREVIEW)
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            }
+        })
 
         // 照片确认 - 发送
         binding.btnReviewSend.setOnClickListener {
@@ -264,6 +301,13 @@ class MainActivity : AppCompatActivity() {
         binding.layoutCameraArea.visibility = View.GONE
         binding.layoutPhotoReviewContainer.visibility = View.GONE
         
+        // NOTE: 退出相机/照片模式时恢复主要 UI 元素
+        if (newState != GameState.CAMERA_PREVIEW && newState != GameState.PHOTO_REVIEW) {
+            binding.layoutHeader.visibility = View.VISIBLE
+            binding.layoutInfoArea.visibility = View.VISIBLE
+            binding.layoutControls.visibility = View.VISIBLE
+        }
+        
         when (newState) {
             GameState.IDLE -> {
                 binding.tvStatus.text = "等待开始"
@@ -296,23 +340,17 @@ class MainActivity : AppCompatActivity() {
                 binding.tvStatus.text = "拍照模式"
                 binding.tvStatus.setTextColor(getColor(R.color.accent_blue))
 
-                // 显示相机预览区域（半屏）
+                // NOTE: 相机全屏模式——隐藏所有非必要 UI
+                binding.layoutHeader.visibility = View.GONE
+                binding.layoutInfoArea.visibility = View.GONE
+                binding.layoutControls.visibility = View.GONE
+                
+                // 显示全屏相机预览区域
                 binding.layoutCameraArea.visibility = View.VISIBLE
                 
                 // 隐藏底部操作栏，使用相机内的 FAB
                 binding.btnActionPrimary.visibility = View.GONE
-                binding.btnActionSecondary.text = "✕ 返回"
-                binding.btnActionSecondary.setBackgroundResource(R.drawable.bg_btn_danger)
-                binding.btnActionSecondary.visibility = View.VISIBLE
-                binding.btnActionSecondary.setOnClickListener {
-                    updateGameState(GameState.GAMING)
-                    // NOTE: 重新绑定拍照按钮的点击事件
-                    binding.btnActionSecondary.setOnClickListener {
-                        if (currentState == GameState.GAMING) {
-                            updateGameState(GameState.CAMERA_PREVIEW)
-                        }
-                    }
-                }
+                binding.btnActionSecondary.visibility = View.GONE
                 binding.btnActionRecord.visibility = View.GONE
                 
                 startCamera()
@@ -321,6 +359,11 @@ class MainActivity : AppCompatActivity() {
                 binding.tvStatus.text = "确认照片"
                 binding.tvStatus.setTextColor(getColor(R.color.accent_gold))
 
+                // NOTE: 照片确认也全屏，隐藏主 UI
+                binding.layoutHeader.visibility = View.GONE
+                binding.layoutInfoArea.visibility = View.GONE
+                binding.layoutControls.visibility = View.GONE
+                
                 binding.layoutPhotoReviewContainer.visibility = View.VISIBLE
                 
                 // 隐藏所有底部按钮（照片确认区有自己的按钮）
@@ -398,7 +441,9 @@ class MainActivity : AppCompatActivity() {
                 override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
                     openCamera(width, height)
                 }
-                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                    configureTransform(width, height)
+                }
                 override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean = true
                 override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
             }
@@ -422,9 +467,12 @@ class MainActivity : AppCompatActivity() {
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             
+            // NOTE: 获取传感器方向，用于后续旋转计算
+            sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+            
             if (map != null) {
                  val supportedSizes = map.getOutputSizes(SurfaceTexture::class.java).toList()
-                 previewSize = chooseOptimalSize(supportedSizes.toTypedArray(), 900, 1200)
+                 previewSize = chooseOptimalSize(supportedSizes.toTypedArray(), 1920, 1080)
             }
 
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -433,6 +481,42 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e("Camera2", "Failed to open camera", e)
         }
+    }
+    
+    /**
+     * 根据设备旋转方向和预览尺寸计算 TextureView 的变换矩阵
+     * NOTE: 横屏模式下，传感器方向通常为 90°，需要相应调整
+     */
+    private fun configureTransform(viewWidth: Int, viewHeight: Int) {
+        val rotation = windowManager.defaultDisplay.rotation
+        val matrix = Matrix()
+        val viewRect = android.graphics.RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
+        val bufferRect = android.graphics.RectF(
+            0f, 0f,
+            (previewSize?.height ?: viewHeight).toFloat(),
+            (previewSize?.width ?: viewWidth).toFloat()
+        )
+        val centerX = viewRect.centerX()
+        val centerY = viewRect.centerY()
+        
+        when (rotation) {
+            Surface.ROTATION_90, Surface.ROTATION_270 -> {
+                // 横屏模式：传感器默认竖直，需要旋转
+                bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
+                matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
+                val scale = Math.max(
+                    viewHeight.toFloat() / (previewSize?.height ?: viewHeight),
+                    viewWidth.toFloat() / (previewSize?.width ?: viewWidth)
+                )
+                matrix.postScale(scale, scale, centerX, centerY)
+                val rotationDegrees = if (rotation == Surface.ROTATION_90) 270f else 90f
+                matrix.postRotate(rotationDegrees, centerX, centerY)
+            }
+            Surface.ROTATION_180 -> {
+                matrix.postRotate(180f, centerX, centerY)
+            }
+        }
+        binding.viewCameraPreview.setTransform(matrix)
     }
     
     private fun chooseOptimalSize(choices: Array<Size>, textureViewWidth: Int, textureViewHeight: Int): Size {
@@ -467,6 +551,13 @@ class MainActivity : AppCompatActivity() {
                 delay(100L)
                 if (cameraDevice == camera) {
                     createCameraPreviewSession(camera)
+                    // NOTE: 相机打开后应用变换矩阵
+                    withContext(Dispatchers.Main) {
+                        configureTransform(
+                            binding.viewCameraPreview.width,
+                            binding.viewCameraPreview.height
+                        )
+                    }
                 }
             }
         }
@@ -549,19 +640,25 @@ class MainActivity : AppCompatActivity() {
 
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 
-                // 旋转手机竖屏拍摄的照片（通常需要旋转 90°）
-                val matrix = Matrix()
-                matrix.postRotate(90f)
-                val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                // NOTE: 横屏模式下传感器方向通常90°，但 JPEG 已经设了正确方向，
+                // 这里不再额外旋转。如果照片仍然方向不对，可以调整此值。
+                val rotationDegrees = 0f
+                val finalBitmap = if (rotationDegrees != 0f) {
+                    val matrix = Matrix()
+                    matrix.postRotate(rotationDegrees)
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                } else {
+                    bitmap
+                }
                 
                 // 裁剪底部 50%（手牌区域）
-                val cropY = (rotatedBitmap.height * 0.50).toInt()
-                val cropHeight = (rotatedBitmap.height * 0.50).toInt()
+                val cropY = (finalBitmap.height * 0.50).toInt()
+                val cropHeight = (finalBitmap.height * 0.50).toInt()
                 
-                val finalY = cropY.coerceIn(0, rotatedBitmap.height)
-                val finalHeight = cropHeight.coerceAtMost(rotatedBitmap.height - finalY)
+                val finalY = cropY.coerceIn(0, finalBitmap.height)
+                val finalHeight = cropHeight.coerceAtMost(finalBitmap.height - finalY)
                 
-                val croppedBitmap = Bitmap.createBitmap(rotatedBitmap, 0, finalY, rotatedBitmap.width, finalHeight)
+                val croppedBitmap = Bitmap.createBitmap(finalBitmap, 0, finalY, finalBitmap.width, finalHeight)
                 
                 val photoFile = File(
                     getExternalFilesDir(Environment.DIRECTORY_PICTURES),
@@ -572,8 +669,7 @@ class MainActivity : AppCompatActivity() {
                     croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos)
                 }
                 
-                bitmap.recycle()
-                rotatedBitmap.recycle()
+                if (rotationDegrees != 0f) bitmap.recycle()
                 
                 currentPhotoFile = photoFile
                 val uri = Uri.fromFile(photoFile)
@@ -606,7 +702,8 @@ class MainActivity : AppCompatActivity() {
             
             captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90)
+            // NOTE: 横屏模式下不需要额外旋转 JPEG
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 0)
 
             session.capture(captureBuilder.build(), null, backHandler)
             

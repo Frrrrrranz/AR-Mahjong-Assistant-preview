@@ -38,7 +38,7 @@ EFFICIENCY_ENGINE = EfficiencyEngine()
 
 # Initialize Services
 # Note: Ensure OPENAI_API_KEY is set in environment or pass it here
-STT_SERVICE = STTService()
+STT_SERVICE = STTService(api_key=config.LLM_API_KEY)
 # STT_SERVICE = None
 LLM_SERVICE = LLMService(
     base_url=config.LLM_BASE_URL,

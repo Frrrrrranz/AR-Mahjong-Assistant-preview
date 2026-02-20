@@ -159,8 +159,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:visibility="gone"
-        app:layout_constraintHeight_percent="0.45"
-        app:layout_constraintBottom_toTopOf="@id/layout_controls">
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
 
         <!-- 相机预览 TextureView -->
         <TextureView
@@ -168,13 +168,16 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <!-- 辅助框线 Overlay：引导用户将手牌放在框内 -->
+
+        <!-- 拍摄引导矩形框：中间透明，帮助用户确认取景范围 -->
         <View
-            android:id="@+id/view_guide_line_top"
+            android:id="@+id/view_guide_frame"
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_gravity="center_vertical"
-            android:background="@color/guide_line" />
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginVertical="48dp"
+            android:background="@drawable/bg_guide_frame" />
 
         <!-- 拍摄提示文字 -->
         <TextView
@@ -189,6 +192,22 @@
             android:text="将手牌放入框内"
             android:textColor="@color/text_primary"
             android:textSize="12sp" />
+
+        <!-- 返回按钮（左上角） -->
+        <TextView
+            android:id="@+id/btn_camera_back"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_marginTop="12dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_toast_dark"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="8dp"
+            android:text="✕ 返回"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:elevation="6dp" />
 
         <!-- FAB 拍照按钮 -->
         <FrameLayout
@@ -282,6 +301,7 @@
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
                 android:background="@drawable/bg_btn_danger"
+                app:backgroundTint="@null"
                 android:text="重拍"
                 android:textColor="@color/white"
                 android:textSize="16sp" />
@@ -293,6 +313,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/bg_btn_primary"
+                app:backgroundTint="@null"
                 android:text="发送分析"
                 android:textColor="@color/white"
                 android:textSize="16sp" />
@@ -318,6 +339,7 @@
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_btn_primary"
+            app:backgroundTint="@null"
             android:text="开始对局"
             android:textColor="@color/white"
             android:textSize="15sp"
@@ -331,6 +353,7 @@
             android:layout_weight="1"
             android:layout_marginHorizontal="6dp"
             android:background="@drawable/bg_btn_secondary"
+            app:backgroundTint="@null"
             android:text="📷 拍照分析"
             android:textColor="@color/white"
             android:textSize="15sp"
@@ -344,6 +367,7 @@
             android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:background="@drawable/bg_btn_secondary"
+            app:backgroundTint="@null"
             android:text="🎤 按住说话"
             android:textColor="@color/white"
             android:textSize="15sp"
