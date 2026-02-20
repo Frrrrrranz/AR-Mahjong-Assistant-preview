@@ -1,11 +1,10 @@
 package com.example.ai_assist
 
 import android.app.Application
-import com.ffalcon.mercury.android.sdk.MercurySDK
 
+// NOTE: 已移除 RayNeo MercurySDK 初始化（手机版不需要 AR SDK）
 class MercuryApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        MercurySDK.init(this)
     }
 }
