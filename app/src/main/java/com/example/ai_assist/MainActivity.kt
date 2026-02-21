@@ -68,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewModel: ChatViewModel
     private lateinit var cameraExecutor: ExecutorService
 
+
     // Camera2 variables
     private var cameraDevice: CameraDevice? = null
     private lateinit var cameraManager: CameraManager
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     // Audio Recorder
     private var audioRecorder: RayNeoAudioRecorder? = null
     private var isRecordingAudio = false
+
 
     // Game State Management
     enum class GameState { IDLE, GAMING, CAMERA_PREVIEW, PHOTO_REVIEW }
@@ -386,6 +388,20 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        
+        // NOTE: 观察语音处理结果，显示识别文本和事件数量
+        lifecycleScope.launch {
+            viewModel.audioResult.collect { result ->
+                result?.let {
+                    val msg = if (it.transcript.isNotBlank()) {
+                        "语音识别: ${it.transcript}\n事件: ${it.events.size}个, 更新: ${it.updatedVisibleTilesCount}张"
+                    } else {
+                        "语音识别失败，请重试"
+                    }
+                    showCustomToast(msg)
+                }
+            }
+        }
     }
 
     private fun formatMahjongText(originalText: String): SpannableString {
@@ -629,6 +645,18 @@ class MainActivity : AppCompatActivity() {
     private val onImageAvailableListener = ImageReader.OnImageAvailableListener { reader ->
         val image = reader.acquireLatestImage() ?: return@OnImageAvailableListener
         
+        // NOTE: 在主线程获取引导框相对于 TextureView 的位置比例，用于裁剪
+        val guideFrame = binding.viewGuideFrame
+        val textureView = binding.viewCameraPreview
+        val tvWidth = textureView.width.toFloat()
+        val tvHeight = textureView.height.toFloat()
+        
+        // 引导框相对于 TextureView 的归一化比例 (0~1)
+        val ratioLeft = if (tvWidth > 0) guideFrame.left.toFloat() / tvWidth else 0f
+        val ratioTop = if (tvHeight > 0) guideFrame.top.toFloat() / tvHeight else 0f
+        val ratioRight = if (tvWidth > 0) guideFrame.right.toFloat() / tvWidth else 1f
+        val ratioBottom = if (tvHeight > 0) guideFrame.bottom.toFloat() / tvHeight else 1f
+        
         lifecycleScope.launch(Dispatchers.IO) {
             var imageClosed = false
             try {
@@ -651,14 +679,18 @@ class MainActivity : AppCompatActivity() {
                     bitmap
                 }
                 
-                // 裁剪底部 50%（手牌区域）
-                val cropY = (finalBitmap.height * 0.50).toInt()
-                val cropHeight = (finalBitmap.height * 0.50).toInt()
+                // NOTE: 按引导框的比例位置裁剪实际图像
+                // 引导框在 TextureView 中的位置已经通过归一化比例传递到 IO 线程
+                val imgW = finalBitmap.width
+                val imgH = finalBitmap.height
+                val cropX = (ratioLeft * imgW).toInt().coerceIn(0, imgW)
+                val cropY = (ratioTop * imgH).toInt().coerceIn(0, imgH)
+                val cropW = ((ratioRight - ratioLeft) * imgW).toInt().coerceIn(1, imgW - cropX)
+                val cropH = ((ratioBottom - ratioTop) * imgH).toInt().coerceIn(1, imgH - cropY)
                 
-                val finalY = cropY.coerceIn(0, finalBitmap.height)
-                val finalHeight = cropHeight.coerceAtMost(finalBitmap.height - finalY)
+                Log.d("Camera2", "Crop: x=$cropX y=$cropY w=$cropW h=$cropH (img=${imgW}x${imgH})")
                 
-                val croppedBitmap = Bitmap.createBitmap(finalBitmap, 0, finalY, finalBitmap.width, finalHeight)
+                val croppedBitmap = Bitmap.createBitmap(finalBitmap, cropX, cropY, cropW, cropH)
                 
                 val photoFile = File(
                     getExternalFilesDir(Environment.DIRECTORY_PICTURES),
@@ -666,10 +698,11 @@ class MainActivity : AppCompatActivity() {
                 )
                 
                 FileOutputStream(photoFile).use { fos ->
-                    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos)
+                    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)
                 }
                 
                 if (rotationDegrees != 0f) bitmap.recycle()
+                if (croppedBitmap !== finalBitmap) croppedBitmap.recycle()
                 
                 currentPhotoFile = photoFile
                 val uri = Uri.fromFile(photoFile)
@@ -721,7 +754,7 @@ class MainActivity : AppCompatActivity() {
             cameraDevice = null
             imageReader?.close()
             imageReader = null
-            previewSize = null 
+            previewSize = null
         } catch (e: Exception) {
             Log.e("Camera2", "Close camera failed", e)
         }

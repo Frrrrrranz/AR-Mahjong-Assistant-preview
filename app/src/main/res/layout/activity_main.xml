@@ -49,19 +49,19 @@
         android:paddingHorizontal="12dp"
         android:paddingTop="4dp"
         app:layout_constraintTop_toBottomOf="@id/layout_header"
-        app:layout_constraintBottom_toTopOf="@id/layout_camera_area">
+        app:layout_constraintBottom_toTopOf="@id/layout_controls">
 
         <!-- 手牌区域 -->
         <LinearLayout
             android:id="@+id/layout_user_hand"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="2"
-            android:layout_marginBottom="6dp"
+            android:layout_weight="1"
+            android:layout_marginBottom="4dp"
             android:background="@drawable/bg_card_dark"
             android:orientation="vertical"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp">
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp">
 
             <TextView
                 android:id="@+id/tv_title_hand"
@@ -69,17 +69,26 @@
                 android:layout_height="wrap_content"
                 android:text="🀄 手牌"
                 android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textSize="11sp" />
 
-            <TextView
-                android:id="@+id/tv_content_hand"
+            <!-- NOTE: 使用 HorizontalScrollView 防止麻将牌图标被水平裁剪 -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:gravity="center"
-                android:text=""
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                android:scrollbars="none"
+                android:fillViewport="true">
+
+                <TextView
+                    android:id="@+id/tv_content_hand"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:gravity="center_vertical"
+                    android:text=""
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:singleLine="true" />
+            </HorizontalScrollView>
         </LinearLayout>
 
         <!-- 副露区域 -->
@@ -87,12 +96,12 @@
             android:id="@+id/layout_suggested"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1.5"
-            android:layout_marginBottom="6dp"
+            android:layout_weight="0.8"
+            android:layout_marginBottom="4dp"
             android:background="@drawable/bg_card_dark"
             android:orientation="vertical"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="8dp">
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp">
 
             <TextView
                 android:id="@+id/tv_title_suggested"
@@ -100,17 +109,26 @@
                 android:layout_height="wrap_content"
                 android:text="📋 副露"
                 android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textSize="11sp" />
 
-            <TextView
-                android:id="@+id/tv_content_suggested"
+            <!-- NOTE: 使用 HorizontalScrollView 防止副露牌图标被裁剪 -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:gravity="center"
-                android:text=""
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
+                android:scrollbars="none"
+                android:fillViewport="true">
+
+                <TextView
+                    android:id="@+id/tv_content_suggested"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:gravity="center_vertical"
+                    android:text=""
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp"
+                    android:singleLine="true" />
+            </HorizontalScrollView>
         </LinearLayout>
 
         <!-- 操作建议区域 -->
@@ -118,7 +136,7 @@
             android:id="@+id/layout_waiting"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="3"
+            android:layout_weight="5"
             android:background="@drawable/bg_card_dark"
             android:orientation="vertical"
             android:paddingHorizontal="12dp"
@@ -169,7 +187,7 @@
             android:layout_height="match_parent" />
 
 
-        <!-- 拍摄引导矩形框：中间透明，帮助用户确认取景范围 -->
+        <!-- 拍摄引导矩形框：帮助用户确认取景范围 -->
         <View
             android:id="@+id/view_guide_frame"
             android:layout_width="match_parent"
@@ -178,6 +196,7 @@
             android:layout_marginHorizontal="24dp"
             android:layout_marginVertical="48dp"
             android:background="@drawable/bg_guide_frame" />
+
 
         <!-- 拍摄提示文字 -->
         <TextView
@@ -189,7 +208,7 @@
             android:background="@drawable/bg_toast_dark"
             android:paddingHorizontal="16dp"
             android:paddingVertical="6dp"
-            android:text="将手牌放入框内"
+            android:text="对准手牌拍照"
             android:textColor="@color/text_primary"
             android:textSize="12sp" />
 
@@ -199,7 +218,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="top|start"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="44dp"
             android:layout_marginStart="12dp"
             android:background="@drawable/bg_toast_dark"
             android:paddingHorizontal="16dp"
@@ -209,13 +228,15 @@
             android:textSize="14sp"
             android:elevation="6dp" />
 
+
+
         <!-- FAB 拍照按钮 -->
         <FrameLayout
             android:id="@+id/btn_shutter"
             android:layout_width="64dp"
             android:layout_height="64dp"
             android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="56dp"
             android:elevation="6dp">
 
             <!-- 外圈 -->
@@ -261,15 +282,7 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
-        <!-- 分割参考线 (50%) -->
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:background="@color/guide_line"
-            app:layout_constraintEnd_toEndOf="@id/image_photo_review"
-            app:layout_constraintStart_toStartOf="@id/image_photo_review"
-            app:layout_constraintTop_toTopOf="@id/image_photo_review"
-            app:layout_constraintBottom_toBottomOf="@id/image_photo_review" />
+
 
         <TextView
             android:id="@+id/tv_instruction_review"

@@ -1,7 +1,9 @@
 package com.example.ai_assist.repository
 
 import com.example.ai_assist.model.AnalyzeResponse
+import com.example.ai_assist.model.DetectTilesResponse
 import com.example.ai_assist.model.EndSessionRequest
+import com.example.ai_assist.model.ProcessAudioResponse
 import com.example.ai_assist.model.StartSessionRequest
 import com.example.ai_assist.service.GameApiService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,15 +43,18 @@ class ChatRepository(private val apiService: GameApiService) {
         }
     }
 
-    suspend fun uploadAudio(audioFile: File, sessionId: String) {
-        try {
+    suspend fun uploadAudio(audioFile: File, sessionId: String): ProcessAudioResponse? {
+        return try {
             val requestFile = audioFile.asRequestBody("audio/wav".toMediaTypeOrNull())
             val body = MultipartBody.Part.createFormData("audio", audioFile.name, requestFile)
             val sessionBody = sessionId.toRequestBody("text/plain".toMediaTypeOrNull())
 
-            apiService.processAudio(body, sessionBody)
+            val response = apiService.processAudio(body, sessionBody)
+            android.util.Log.d("ChatRepository", "Audio processed: transcript=${response.transcript}")
+            response
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ChatRepository", "Upload audio failed", e)
+            null
         }
     }
 
@@ -58,6 +63,20 @@ class ChatRepository(private val apiService: GameApiService) {
             apiService.endSession(EndSessionRequest(sessionId))
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    // 轻量检测：仅上传图片做 YOLO 推理，不含状态追踪
+    suspend fun detectTiles(imageFile: File): DetectTilesResponse? {
+        return try {
+            val requestFile = imageFile.asRequestBody("image/jpeg".toMediaTypeOrNull())
+            val body = MultipartBody.Part.createFormData("image", imageFile.name, requestFile)
+            val response = apiService.detectTiles(body)
+            android.util.Log.d("ChatRepository", "Detected ${response.detections.size} tiles in ${response.inferenceTimeMs}ms")
+            response
+        } catch (e: Exception) {
+            android.util.Log.e("ChatRepository", "Detect tiles failed", e)
+            null
         }
     }
 }

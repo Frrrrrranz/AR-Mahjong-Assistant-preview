@@ -21,3 +21,15 @@ class ProcessAudioResponse(BaseModel):
     events: List[Dict[str, Any]]
     updated_visible_tiles_count: int
     details: List[str]
+
+class TileDetection(BaseModel):
+    class_name: str
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    confidence: float
+
+class DetectTilesResponse(BaseModel):
+    detections: List[TileDetection]
+    inference_time_ms: float

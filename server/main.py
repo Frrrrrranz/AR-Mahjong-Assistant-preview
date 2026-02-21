@@ -22,7 +22,9 @@ from schemas import (
     StartSessionRequest, 
     AnalyzeResponse, 
     EndSessionRequest, 
-    ProcessAudioResponse
+    ProcessAudioResponse,
+    DetectTilesResponse,
+    TileDetection
 )
 
 # Configure Logging
@@ -440,6 +442,60 @@ async def get_history_details(session_id: str):
     if not details:
         return {"error": "Session not found"}
     return details
+
+@app.post("/api/detect-tiles", response_model=DetectTilesResponse)
+async def detect_tiles(
+    image: UploadFile = File(...)
+):
+    """
+    轻量检测 API：仅做 YOLO 推理返回检测框，不含状态追踪和效率计算。
+    用于实时检测模式的连续拍照检测。
+    """
+    import time
+    start_time = time.time()
+    
+    # 保存临时图片
+    timestamp = int(datetime.datetime.now().timestamp() * 1000)
+    temp_filename = f"detect_{timestamp}.jpg"
+    temp_path = os.path.join(UPLOAD_DIR, temp_filename)
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+        
+        # 仅执行 YOLO 推理
+        preds = VISION_SERVICE.detect_objects(temp_path)
+        
+        # 转换为 xyxy 格式
+        detections = []
+        for p in preds:
+            cx = p.get('x', 0)
+            cy = p.get('y', 0)
+            w = p.get('width', 0)
+            h = p.get('height', 0)
+            detections.append(TileDetection(
+                class_name=p.get('class', '?'),
+                x1=cx - w / 2,
+                y1=cy - h / 2,
+                x2=cx + w / 2,
+                y2=cy + h / 2,
+                confidence=p.get('confidence', 0.0)
+            ))
+        
+        inference_time = (time.time() - start_time) * 1000
+        logger.info(f"Detect-tiles: found {len(detections)} tiles in {inference_time:.0f}ms")
+        
+        return DetectTilesResponse(
+            detections=detections,
+            inference_time_ms=round(inference_time, 1)
+        )
+    except Exception as e:
+        logger.error(f"Detect-tiles error: {e}")
+        return DetectTilesResponse(detections=[], inference_time_ms=0)
+    finally:
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.post("/api/debug/yolo")
 async def debug_yolo(

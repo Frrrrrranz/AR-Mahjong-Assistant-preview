@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.ai_assist.model.AnalyzeResponse
+import com.example.ai_assist.model.DetectTilesResponse
+import com.example.ai_assist.model.ProcessAudioResponse
 import com.example.ai_assist.repository.ChatRepository
 import com.example.ai_assist.utils.MahjongMapper
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,14 @@ class ChatViewModel(
             )
         }
     }
+    
+    // NOTE: 语音处理结果，用于 UI 展示反馈
+    private val _audioResult = MutableStateFlow<ProcessAudioResponse?>(null)
+    val audioResult: StateFlow<ProcessAudioResponse?> = _audioResult
+
+    // NOTE: 实时检测结果，用于叠加绘制检测框
+    private val _detectionResult = MutableStateFlow<DetectTilesResponse?>(null)
+    val detectionResult: StateFlow<DetectTilesResponse?> = _detectionResult
     
     private var sessionId = UUID.randomUUID().toString()
 
@@ -56,8 +66,27 @@ class ChatViewModel(
 
     fun uploadAudio(file: File) {
         viewModelScope.launch {
-            repository.uploadAudio(file, sessionId)
+            val result = repository.uploadAudio(file, sessionId)
+            _audioResult.value = result
         }
+    }
+
+    // 实时检测：仅上传图片做 YOLO 推理
+    fun detectTiles(file: File) {
+        viewModelScope.launch {
+            val result = repository.detectTiles(file)
+            _detectionResult.value = result
+        }
+    }
+
+    // 供 MainActivity 在同步调用 repository 后直接更新结果
+    fun updateDetectionResult(result: DetectTilesResponse) {
+        _detectionResult.value = result
+    }
+
+    // 清空检测结果（退出实时检测模式时调用）
+    fun clearDetectionResult() {
+        _detectionResult.value = null
     }
 }
 
@@ -72,3 +101,4 @@ class ChatViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+

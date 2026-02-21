@@ -1,13 +1,14 @@
 package com.example.ai_assist.service
 
 import com.example.ai_assist.model.AnalyzeResponse
+import com.example.ai_assist.model.DetectTilesResponse
 import com.example.ai_assist.model.EndSessionRequest
 import com.example.ai_assist.model.EndSessionResponse
+import com.example.ai_assist.model.ProcessAudioResponse
 import com.example.ai_assist.model.StartSessionRequest
 import com.example.ai_assist.model.StartSessionResponse
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
-import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.Multipart
 import retrofit2.http.POST
@@ -29,8 +30,16 @@ interface GameApiService {
     suspend fun processAudio(
         @Part audio: MultipartBody.Part,
         @Part("session_id") sessionId: RequestBody
-    ): ResponseBody
+    ): ProcessAudioResponse
 
     @POST("api/end-session")
     suspend fun endSession(@Body request: EndSessionRequest): EndSessionResponse
+
+    // 轻量检测 API：仅做 YOLO 推理，用于实时检测模式
+    @Multipart
+    @POST("api/detect-tiles")
+    suspend fun detectTiles(
+        @Part image: MultipartBody.Part
+    ): DetectTilesResponse
 }
+

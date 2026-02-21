@@ -27,16 +27,26 @@ env/
 pip-log.txt
 pip-delete-this-directory.txt
 .env
+*.env
 
 # Database
 *.db
 *.sqlite3
 
-# IDE
+# IDE & AI Tools
 .idea/
 .trae/
-.kotlin/
+.kotlin/88888
 .vscode/
+.agent/
+AGENTS.md
+.cursorrules
+.aierules
+
+# API Keys & Secrets
+*api_key*
+*secrets*
+local.properties
 
 # Project Specific
 server/static/uploads/
